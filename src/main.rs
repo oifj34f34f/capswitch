@@ -11,32 +11,47 @@ struct LayoutList(Vec<HKL>);
 unsafe impl Sync for LayoutList {}
 unsafe impl Send for LayoutList {}
 
+struct HookGuard(HHOOK);
+impl Drop for HookGuard {
+    fn drop(&mut self) {
+        unsafe { let _ = UnhookWindowsHookEx(self.0); }
+    }
+}
+
 static LAYOUTS: OnceLock<LayoutList> = OnceLock::new();
 static SUPPRESS_UP: AtomicBool = AtomicBool::new(false);
 static CAPS_DOWN: AtomicBool = AtomicBool::new(false);
+static SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let kb = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
-        if kb.vkCode == VK_CAPITAL.0 as u32 {
-            let injected = (kb.flags.0 & 0x10) != 0;
-            if !injected {
-                let msg = wparam.0 as u32;
-                if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
-                    let was_down = CAPS_DOWN.swap(true, Ordering::SeqCst);
-                    let shift = (GetAsyncKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
-                    if !shift {
-                        if !was_down {
-                            switch_layout();
-                        }
-                        SUPPRESS_UP.store(true, Ordering::SeqCst);
-                        return LRESULT(1);
+        let injected = (kb.flags.0 & LLKHF_INJECTED.0) != 0;
+        let msg = wparam.0 as u32;
+        let is_down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+        let is_up = msg == WM_KEYUP || msg == WM_SYSKEYUP;
+
+        if kb.vkCode == VK_SHIFT.0 as u32
+            || kb.vkCode == VK_LSHIFT.0 as u32
+            || kb.vkCode == VK_RSHIFT.0 as u32
+        {
+            SHIFT_DOWN.store(is_down, Ordering::Relaxed);
+        }
+
+        if kb.vkCode == VK_CAPITAL.0 as u32 && !injected {
+            if is_down {
+                let was_down = CAPS_DOWN.swap(true, Ordering::Relaxed);
+                if !SHIFT_DOWN.load(Ordering::Relaxed) {
+                    if !was_down {
+                        switch_layout();
                     }
-                } else if msg == WM_KEYUP || msg == WM_SYSKEYUP {
-                    CAPS_DOWN.store(false, Ordering::SeqCst);
-                    if SUPPRESS_UP.swap(false, Ordering::SeqCst) {
-                        return LRESULT(1);
-                    }
+                    SUPPRESS_UP.store(true, Ordering::Relaxed);
+                    return LRESULT(1);
+                }
+            } else if is_up {
+                CAPS_DOWN.store(false, Ordering::Relaxed);
+                if SUPPRESS_UP.swap(false, Ordering::Relaxed) {
+                    return LRESULT(1);
                 }
             }
         }
@@ -46,17 +61,19 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
 
 unsafe fn focused_window() -> HWND {
     let fg = GetForegroundWindow();
-    if !fg.0.is_null() {
-        let tid = GetWindowThreadProcessId(fg, None);
-        let mut gui = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
-        if GetGUIThreadInfo(tid, &mut gui).is_ok() && !gui.hwndFocus.0.is_null() {
-            return gui.hwndFocus;
-        }
+    if fg.0.is_null() {
+        return fg;
     }
-    fg
+    let tid = GetWindowThreadProcessId(fg, None);
+    let mut gui = GUITHREADINFO {
+        cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+        ..Default::default()
+    };
+    if GetGUIThreadInfo(tid, &mut gui).is_ok() && !gui.hwndFocus.0.is_null() {
+        gui.hwndFocus
+    } else {
+        fg
+    }
 }
 
 unsafe fn switch_layout() {
@@ -74,21 +91,35 @@ unsafe fn switch_layout() {
     let tid = GetWindowThreadProcessId(hwnd, None);
     let current = GetKeyboardLayout(tid);
     let idx = layouts.iter().position(|h| h.0 == current.0).unwrap_or(0);
-    let next_idx = (idx + 1) % layouts.len();
-    let next = layouts[next_idx].0 as isize;
-    let _ = PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, WPARAM(0), LPARAM(next));
+    let next = layouts[(idx + 1) % layouts.len()];
+    let _ = PostMessageW(
+        hwnd,
+        WM_INPUTLANGCHANGEREQUEST,
+        WPARAM(0),
+        LPARAM(next.0 as usize as isize),
+    );
+}
+
+unsafe fn get_layout_list() -> Vec<HKL> {
+    loop {
+        let count = GetKeyboardLayoutList(None) as usize;
+        let mut list = vec![HKL::default(); count];
+        let filled = GetKeyboardLayoutList(Some(&mut list)) as usize;
+        if filled == count {
+            list.truncate(filled);
+            return list;
+        }
+    }
 }
 
 fn main() {
     unsafe {
-        let count = GetKeyboardLayoutList(None) as usize;
-        let mut list = vec![HKL::default(); count];
-        GetKeyboardLayoutList(Some(&mut list));
+        let list = get_layout_list();
         let _ = LAYOUTS.set(LayoutList(list));
 
         let hmod = GetModuleHandleW(None).unwrap();
-        let hinst: HINSTANCE = hmod.into();
-        let _hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), hinst, 0).unwrap();
+        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), hmod.into(), 0).unwrap();
+        let _guard = HookGuard(hook);
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, HWND::default(), 0, 0).as_bool() {
