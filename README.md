@@ -5,4 +5,4 @@ Switch keyboard layouts using the <kbd>Caps Lock</kbd>, and use the standard Cap
 Written by AI.
 Supports Windows only.
 
-`To run at startup:` press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, and copy the binary or its shortcut to that folder.
+**To run at startup:** press <kbd>Win</kbd>+<kbd>R</kbd>, type `shell:startup`, and copy the binary or its shortcut to that folder.
