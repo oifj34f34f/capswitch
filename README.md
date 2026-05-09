@@ -9,7 +9,7 @@ Supports Windows only.
 Downloads, adds to startup, and launches automatically:
 
 ```powershell
-irm https://github.com/oifj34f34f/caps_switcher/releases/download/latest/caps_switcher.exe -OutFile "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\caps_switcher.exe"; Start-Process "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\caps_switcher.exe"
+iwr https://github.com/oifj34f34f/caps_switcher/releases/latest/download/caps_switcher.exe -OutFile "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\caps_switcher.exe"; Start-Process "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\caps_switcher.exe"
 ```
 
 <details>
