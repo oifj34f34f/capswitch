@@ -118,7 +118,7 @@ fn main() {
         let _ = LAYOUTS.set(LayoutList(list));
 
         let hmod = GetModuleHandleW(None).unwrap();
-        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), hmod.into(), 0).unwrap();
+        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), hmod, 0).unwrap();
         let _guard = HookGuard(hook);
 
         let mut msg = MSG::default();
