@@ -1,7 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-static HKL     *g_layouts   = NULL;
+static HKL     *g_layouts    = NULL;
 static int      g_count      = 0;
 static HHOOK    g_hook       = NULL;
 static BOOL     g_caps_down  = FALSE;
@@ -14,7 +14,10 @@ static HWND focused_window(void)
     if (!fg) return fg;
 
     DWORD tid = GetWindowThreadProcessId(fg, NULL);
-    GUITHREADINFO gti = { sizeof(gti) };
+    
+    GUITHREADINFO gti;
+    gti.cbSize = sizeof(gti); 
+    
     if (GetGUIThreadInfo(tid, &gti) && gti.hwndFocus)
         return gti.hwndFocus;
     return fg;
@@ -31,8 +34,9 @@ static void switch_layout(void)
     HKL current  = GetKeyboardLayout(tid);
 
     int idx = 0;
-    for (int i = 0; i < g_count; i++)
+    for (int i = 0; i < g_count; i++) {
         if (g_layouts[i] == current) { idx = i; break; }
+    }
 
     HKL next = g_layouts[(idx + 1) % g_count];
     PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)next);
@@ -74,30 +78,31 @@ static LRESULT CALLBACK hook_proc(int code, WPARAM wparam, LPARAM lparam)
     return CallNextHookEx(g_hook, code, wparam, lparam);
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev,
-                   LPSTR lpCmdLine, int nCmdShow)
+void __declspec(noreturn) __stdcall RawEntryPoint(void)
 {
-    UNREFERENCED_PARAMETER(hPrev);
-    UNREFERENCED_PARAMETER(lpCmdLine);
-    UNREFERENCED_PARAMETER(nCmdShow);
-
     int count = GetKeyboardLayoutList(0, NULL);
-    g_layouts = (HKL *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(HKL));
-    g_count   = GetKeyboardLayoutList(count, g_layouts);
+    if (count > 0) {
+        g_layouts = (HKL *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(HKL));
+        g_count   = GetKeyboardLayoutList(count, g_layouts);
+    }
 
+    HINSTANCE hInstance = GetModuleHandleW(NULL);
     g_hook = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, hInstance, 0);
-    if (!g_hook) {
+
+    if (g_hook) {
+        SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
+
+        MSG msg;
+        while (GetMessageW(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        UnhookWindowsHookEx(g_hook);
+    }
+
+    if (g_layouts) {
         HeapFree(GetProcessHeap(), 0, g_layouts);
-        return 1;
     }
 
-    MSG msg;
-    while (GetMessageW(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-    }
-
-    UnhookWindowsHookEx(g_hook);
-    HeapFree(GetProcessHeap(), 0, g_layouts);
-    return 0;
+    ExitProcess(0);
 }
