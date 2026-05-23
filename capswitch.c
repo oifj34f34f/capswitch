@@ -1,11 +1,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-static HKL     *g_layouts    = NULL;
-static int      g_count      = 0;
-static HHOOK    g_hook       = NULL;
-static BOOL     g_caps_down  = FALSE;
-static BOOL     g_suppress   = FALSE;
+static HHOOK g_hook       = NULL;
+static BOOL  g_caps_down  = FALSE;
+static BOOL  g_suppress   = FALSE;
 
 static HWND focused_window(void)
 {
@@ -15,7 +13,7 @@ static HWND focused_window(void)
     DWORD tid = GetWindowThreadProcessId(fg, NULL);
 
     GUITHREADINFO gti;
-    gti.cbSize = sizeof(gti); 
+    gti.cbSize = sizeof(gti);
 
     if (GetGUIThreadInfo(tid, &gti) && gti.hwndFocus)
         return gti.hwndFocus;
@@ -24,20 +22,31 @@ static HWND focused_window(void)
 
 static void switch_layout(void)
 {
-    if (g_count < 2) return;
+    int count = GetKeyboardLayoutList(0, NULL);
+    if (count < 2) return;
+
+    HKL *layouts = (HKL *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(HKL));
+    if (!layouts) return;
+
+    int actual = GetKeyboardLayoutList(count, layouts);
 
     HWND hwnd = focused_window();
-    if (!hwnd) return;
-
-    DWORD tid    = GetWindowThreadProcessId(hwnd, NULL);
-    HKL current  = GetKeyboardLayout(tid);
-
-    int idx = 0;
-    for (int i = 0; i < g_count; i++) {
-        if (g_layouts[i] == current) { idx = i; break; }
+    if (!hwnd) {
+        HeapFree(GetProcessHeap(), 0, layouts);
+        return;
     }
 
-    HKL next = g_layouts[(idx + 1) % g_count];
+    DWORD tid   = GetWindowThreadProcessId(hwnd, NULL);
+    HKL current = GetKeyboardLayout(tid);
+
+    int idx = 0;
+    for (int i = 0; i < actual; i++) {
+        if (layouts[i] == current) { idx = i; break; }
+    }
+
+    HKL next = layouts[(idx + 1) % actual];
+    HeapFree(GetProcessHeap(), 0, layouts);
+
     PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)next);
 }
 
@@ -73,12 +82,6 @@ static LRESULT CALLBACK hook_proc(int code, WPARAM wparam, LPARAM lparam)
 
 void __declspec(noreturn) __stdcall RawEntryPoint(void)
 {
-    int count = GetKeyboardLayoutList(0, NULL);
-    if (count > 0) {
-        g_layouts = (HKL *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(HKL));
-        g_count   = GetKeyboardLayoutList(count, g_layouts);
-    }
-
     HINSTANCE hInstance = GetModuleHandleW(NULL);
     g_hook = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, hInstance, 0);
 
@@ -91,10 +94,6 @@ void __declspec(noreturn) __stdcall RawEntryPoint(void)
             DispatchMessageW(&msg);
         }
         UnhookWindowsHookEx(g_hook);
-    }
-
-    if (g_layouts) {
-        HeapFree(GetProcessHeap(), 0, g_layouts);
     }
 
     ExitProcess(0);
