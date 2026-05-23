@@ -1,0 +1,99 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+static HKL     *g_layouts   = NULL;
+static int      g_count      = 0;
+static HHOOK    g_hook       = NULL;
+static BOOL     g_caps_down  = FALSE;
+static BOOL     g_shift_down = FALSE;
+static BOOL     g_suppress   = FALSE;
+
+static HWND focused_window(void)
+{
+    HWND fg = GetForegroundWindow();
+    if (!fg) return fg;
+
+    DWORD tid = GetWindowThreadProcessId(fg, NULL);
+    GUITHREADINFO gti = { sizeof(gti) };
+    if (GetGUIThreadInfo(tid, &gti) && gti.hwndFocus)
+        return gti.hwndFocus;
+    return fg;
+}
+
+static void switch_layout(void)
+{
+    if (g_count < 2) return;
+
+    HWND hwnd = focused_window();
+    if (!hwnd) return;
+
+    DWORD tid    = GetWindowThreadProcessId(hwnd, NULL);
+    HKL current  = GetKeyboardLayout(tid);
+
+    int idx = 0;
+    for (int i = 0; i < g_count; i++)
+        if (g_layouts[i] == current) { idx = i; break; }
+
+    HKL next = g_layouts[(idx + 1) % g_count];
+    PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, (LPARAM)next);
+}
+
+static LRESULT CALLBACK hook_proc(int code, WPARAM wparam, LPARAM lparam)
+{
+    if (code >= 0) {
+        KBDLLHOOKSTRUCT *kb = (KBDLLHOOKSTRUCT *)lparam;
+        BOOL injected = (kb->flags & LLKHF_INJECTED) != 0;
+        BOOL is_down  = (wparam == WM_KEYDOWN  || wparam == WM_SYSKEYDOWN);
+        BOOL is_up    = (wparam == WM_KEYUP    || wparam == WM_SYSKEYUP);
+
+        if (kb->vkCode == VK_SHIFT ||
+            kb->vkCode == VK_LSHIFT ||
+            kb->vkCode == VK_RSHIFT)
+        {
+            g_shift_down = is_down;
+        }
+
+        if (kb->vkCode == VK_CAPITAL && !injected) {
+            if (is_down) {
+                BOOL was_down = g_caps_down;
+                g_caps_down = TRUE;
+                if (!g_shift_down) {
+                    if (!was_down) switch_layout();
+                    g_suppress = TRUE;
+                    return 1;
+                }
+            } else if (is_up) {
+                g_caps_down = FALSE;
+                if (g_suppress) {
+                    g_suppress = FALSE;
+                    return 1;
+                }
+            }
+        }
+    }
+    return CallNextHookEx(g_hook, code, wparam, lparam);
+}
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev,
+                   LPSTR lpCmdLine, int nCmdShow)
+{
+    int count = GetKeyboardLayoutList(0, NULL);
+    g_layouts = (HKL *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(HKL));
+    g_count   = GetKeyboardLayoutList(count, g_layouts);
+
+    g_hook = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, hInstance, 0);
+    if (!g_hook) {
+        HeapFree(GetProcessHeap(), 0, g_layouts);
+        return 1;
+    }
+
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    UnhookWindowsHookEx(g_hook);
+    HeapFree(GetProcessHeap(), 0, g_layouts);
+    return 0;
+}
