@@ -29,7 +29,7 @@ winget install -e --id Microsoft.VisualStudio.BuildTools --override "--passive -
 Then run in Developer PowerShell:
 
 ```powershell
-cl /O1 /Os /GS- capswitch.c /link /SUBSYSTEM:WINDOWS /NODEFAULTLIB /ENTRY:RawEntryPoint /STACK:65536 kernel32.lib user32.lib
+cl /O1 /Os /GS- /GL capswitch.c /link /SUBSYSTEM:WINDOWS /NODEFAULTLIB /ENTRY:RawEntryPoint /STACK:65536 /LTCG /OPT:REF,ICF /MERGE:.rdata=.text kernel32.lib user32.lib
 ```
 
 ## Uninstall
