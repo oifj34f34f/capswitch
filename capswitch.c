@@ -77,6 +77,10 @@ static LRESULT CALLBACK hook_proc(int code, WPARAM wparam, LPARAM lparam)
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev,
                    LPSTR lpCmdLine, int nCmdShow)
 {
+    UNREFERENCED_PARAMETER(hPrev);
+    UNREFERENCED_PARAMETER(lpCmdLine);
+    UNREFERENCED_PARAMETER(nCmdShow);
+
     int count = GetKeyboardLayoutList(0, NULL);
     g_layouts = (HKL *)HeapAlloc(GetProcessHeap(), 0, count * sizeof(HKL));
     g_count   = GetKeyboardLayoutList(count, g_layouts);
