@@ -35,7 +35,7 @@ cl /O2 /W4 capswitch.c /link /SUBSYSTEM:WINDOWS user32.lib kernel32.lib
 ## Uninstall
 
 ```powershell
-Stop-Process -Name capswitch -Force -ErrorAction SilentlyContinue; Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\capswitch.exe"
+Stop-Process -Name capswitch -Force -ErrorAction SilentlyContinue; Remove-Item "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\capswitch.exe" -Force -ErrorAction SilentlyContinue
 ```
 
 ---
